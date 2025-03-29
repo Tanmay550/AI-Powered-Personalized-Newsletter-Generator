@@ -7,14 +7,11 @@ import os
 import re
 from bs4 import BeautifulSoup
 
-# Suppress TensorFlow warnings
 os.environ["TF_CPP_MIN_LOG_LEVEL"] = "2"
 
-# Check CUDA availability, else use CPU
 device = "cuda" if torch.cuda.is_available() else "cpu"
 device_id = 0 if device == "cuda" else -1
 
-# Load AI models (no caching, always loads fresh)
 def load_models():
     try:
         classifier = pipeline("zero-shot-classification", model="facebook/bart-large-mnli", device=device_id, framework="pt")
@@ -88,24 +85,15 @@ RSS_FEEDS = {
 def clean_html_content(html_text):
     if not html_text:
         return "No summary available"
-    
     try:
-        # Use BeautifulSoup to parse HTML and extract text
         soup = BeautifulSoup(html_text, 'html.parser')
-        
-        # Remove script and style elements
         for script in soup(["script", "style"]):
             script.extract()
-            
-        # Get text
         text = soup.get_text(separator=' ', strip=True)
-        
-        # Remove excessive whitespace
         text = re.sub(r'\s+', ' ', text).strip()
-        
         return text
     except Exception as e:
-        # If parsing fails, fallback to simple regex cleaning
+
         text = re.sub(r'<[^>]+>', ' ', html_text)
         text = re.sub(r'\s+', ' ', text).strip()
         return text
@@ -116,7 +104,6 @@ def fetch_rss_articles(url):
     articles = []
     
     for entry in feed.entries[:5]:
-        # Clean the summary/content from HTML tags
         summary = entry.get("summary", entry.get("description", "No Summary"))
         clean_summary = clean_html_content(summary)
         
@@ -130,15 +117,15 @@ def fetch_rss_articles(url):
     
     return articles if articles else []
 
-# Classify Articles into User Categories - Using improved confidence threshold
+# Classify Articles into User Categories 
 def classify_article(text, user_categories):
-    text = text[:512]  # Limit text length for better classification
+    text = text[:512] 
     try:
         result = classifier(text, user_categories, multi_label=True)
-        # Return the category with highest score above threshold
+ 
         top_category = result["labels"][0]
         top_score = result["scores"][0]
-        if top_score > 0.5:  # Increased confidence threshold from 0.3 to 0.5
+        if top_score > 0.5: 
             return top_category
     except Exception:
         return None
@@ -147,34 +134,27 @@ def classify_article(text, user_categories):
 # Improved feed source selection - Direct match with category names
 def determine_feed_sources(user_categories):
     sources = []
-    
-    # First, check for direct matches with RSS feed categories
     for category in user_categories:
         if category in RSS_FEEDS:
             sources.append(category)
         else:
-            # If no direct match, use classification to find best feed source
             try:
                 result = classifier(category, list(RSS_FEEDS.keys()), multi_label=False)
                 top_source = result["labels"][0]
                 top_score = result["scores"][0]
                 
-                # Only add if confidence is high
-                if top_score > 0.4:  # Increased threshold
+                if top_score > 0.4:  
                     sources.append(top_source)
                 else:
-                    # If no good match, only add General News if explicitly requested
                     if category.lower() in ["news", "general news", "current events"]:
                         sources.append("General News")
             except Exception:
-                # No fallbacks to avoid unwanted content
                 pass
     
-    # If no sources found at all, add General News as fallback
     if not sources:
         sources.append("General News")
     
-    return list(set(sources))  # Remove duplicates
+    return list(set(sources)) 
 
 # Get feeds based on selected source categories
 def get_feeds_for_sources(source_categories):
@@ -183,8 +163,6 @@ def get_feeds_for_sources(source_categories):
     for category in source_categories:
         if category in RSS_FEEDS:
             all_feeds.extend(RSS_FEEDS[category])
-    
-    # Remove duplicates while preserving order
     return list(dict.fromkeys(all_feeds))
 
 # Summarize Text
@@ -199,10 +177,7 @@ def summarize_text(text):
 
 # Generate Newsletter
 def generate_newsletter(articles_by_category):
-    # Extract all summaries
     all_summaries = " ".join([summarize_text(article["summary"]) for articles in articles_by_category.values() for article in articles])
-
-    # Generate an overall summary of all articles
     general_summary = ""
     if len(all_summaries.split()) > 50:
         try:
@@ -210,17 +185,14 @@ def generate_newsletter(articles_by_category):
         except Exception:
             general_summary = "Summary not available due to processing error."
 
-    # Extract top 3 trending/highlighted articles (based on first appearance)
     top_articles = []
     for category, articles in articles_by_category.items():
         for article in articles:
             top_articles.append(f"- **{article['title']}** ({category})")
         if len(top_articles) >= 3:
-            break  # Limit to 3 top articles
+            break 
 
     trending_highlights = "\n".join(top_articles[:3]) if top_articles else "No trending highlights available."
-
-    # Build newsletter
     newsletter = f"# 📰 AI-Powered News Digest ({datetime.date.today()})\n\n"
     newsletter += "## 🌟 Trending Highlights\n"
     newsletter += f"{trending_highlights}\n\n"
@@ -241,38 +213,30 @@ def generate_newsletter(articles_by_category):
 
     return newsletter
 
-# Streamlit UI
-st.title("📢 AI-Powered Custom News Categorization")
+st.title("📢 AI-Powered Newsletter Generator")
 st.sidebar.header("User Preferences")
 
-
-# Text area for user to enter categories
 custom_categories_input = st.sidebar.text_area(
     "Enter your categories (one per line):",
     height=150,
     help="Examples: Artificial Intelligence, Climate Change, Politics, Space Exploration, etc."
 )
 
-# Parse custom categories
-user_categories = [category.strip() for category in custom_categories_input.split('\n') if category.strip()]
-user_categories = list(dict.fromkeys(user_categories))  # Remove duplicates
 
-# Main fetch button
+user_categories = [category.strip() for category in custom_categories_input.split('\n') if category.strip()]
+user_categories = list(dict.fromkeys(user_categories)) 
+
 if st.sidebar.button("Fetch News"):
     if not user_categories:
         st.warning("⚠️ Please define at least one category of interest.")
     else:
-        # Determine which feed sources to use based on user categories
         feed_sources = determine_feed_sources(user_categories)
         all_feeds = get_feeds_for_sources(feed_sources)
         
         st.subheader("📰 AI-Categorized News Based on Your Interests")
         st.info(f"Using sources from: {', '.join(feed_sources)}")
-        
-        # Create articles dictionary by category
+    
         articles_by_category = {category: [] for category in user_categories}
-        
-        # Setup progress tracking
         progress_bar = st.progress(0)
         status_text = st.empty()
         
@@ -280,30 +244,24 @@ if st.sidebar.button("Fetch News"):
         if total_feeds == 0:
             st.warning("No feeds found matching your categories. Try different categories.")
         else:
-            # Process each feed
             for i, url in enumerate(all_feeds):
                 status_text.text(f"Processing feed {i+1} of {total_feeds}...")
                 articles = fetch_rss_articles(url)
                 
                 for article in articles:
-                    # Combine title and summary for better classification
                     text = f"{article['title']} {article['summary']}"
                     classified_category = classify_article(text, user_categories)
                     
                     if classified_category:
-                        # Generate a summarized version
                         article["summary"] = summarize_text(article["summary"])
-                        # Add to the appropriate category
                         articles_by_category[classified_category].append(article)
                 
-                # Update progress
+
                 progress_bar.progress((i + 1) / total_feeds)
             
-            # Clear progress indicators
             progress_bar.empty()
             status_text.empty()
             
-            # Display results
             empty_categories = True
             for category, articles in articles_by_category.items():
                 if articles:
@@ -319,7 +277,6 @@ if st.sidebar.button("Fetch News"):
             if empty_categories:
                 st.warning("No articles matching your categories were found. Try adding more diverse categories.")
             else:
-                # Generate downloadable newsletter
                 newsletter_content = generate_newsletter(articles_by_category)
                 st.download_button(
                     label="📩 Download Newsletter", 
@@ -328,13 +285,10 @@ if st.sidebar.button("Fetch News"):
                     mime="text/markdown"
                 )
 else:
-    # Show instructions when app first loads
     st.markdown("""
     ## 🌟 How to Use
     1. **Enter your categories** of interest in the sidebar (one per line)
     2. Click **Fetch News** to get AI-categorized articles matching your interests
     3. The app will automatically select the appropriate news sources based on your categories
     4. Download a personalized newsletter with your curated content
-    
-    Some suggested categories include Technology, Finance, Science, F1, Esports, Basketball, Soccer, Baseball, Entertainment, Sports, and General News for more accurate results.
     """)
