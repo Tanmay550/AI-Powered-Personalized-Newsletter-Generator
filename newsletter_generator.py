@@ -12,8 +12,7 @@ os.environ["TF_CPP_MIN_LOG_LEVEL"] = "2"
 device = "cuda" if torch.cuda.is_available() else "cpu"
 device_id = 0 if device == "cuda" else -1
 
-# Load AI models (with caching to improve speed)
-@st.cache_resource()
+# Load AI models (no caching, always loads fresh)
 def load_models():
     try:
         classifier = pipeline("zero-shot-classification", model="facebook/bart-large-mnli", device=device_id, framework="pt")
@@ -25,34 +24,43 @@ def load_models():
 
 classifier, summarizer = load_models()
 
-# RSS Feeds Dictionary
+# RSS Feeds Dictionary Categorized
 RSS_FEEDS = {
-
-    "BBC_World": "http://feeds.bbci.co.uk/news/world/rss.xml",
-    "NYTimes_World": "https://rss.nytimes.com/services/xml/rss/nyt/World.xml",
-    "Reuters": "http://feeds.reuters.com/reuters/topNews",
-    "TechCrunch": "http://feeds.feedburner.com/TechCrunch/",
-    "Wired": "https://www.wired.com/feed/rss",
-    "MIT_Technology_Review": "https://www.technologyreview.com/feed/",
-    "Bloomberg": "https://www.bloomberg.com/feed/",
-    "CNBC": "https://www.cnbc.com/id/100003114/device/rss/rss.html",
-    "Financial_Times": "https://www.ft.com/?format=rss",
-    "ESPN": "https://www.espn.com/espn/rss/news",
-    "BBC_Sport": "http://feeds.bbci.co.uk/sport/rss.xml?edition=uk",
-    "Sky_Sports": "https://www.skysports.com/rss/12040",
-    "Variety": "https://variety.com/feed/",
-    "Hollywood_Reporter": "https://www.hollywoodreporter.com/t/hollywood/feed/",
-    "Billboard": "https://www.billboard.com/feed/",
-    "NASA": "https://www.nasa.gov/rss/dyn/breaking_news.rss",
-    "Science_Daily": "https://www.sciencedaily.com/rss/rss/top/science.xml",
-    "Ars_Technica_Science": "https://arstechnica.com/science/",
+    "General News": [
+        "http://feeds.bbci.co.uk/news/world/rss.xml",
+        "https://rss.nytimes.com/services/xml/rss/nyt/World.xml",
+        "http://feeds.reuters.com/reuters/topNews"
+    ],
+    "Technology": [
+        "http://feeds.feedburner.com/TechCrunch/",
+        "https://www.wired.com/feed/rss",
+        "https://www.technologyreview.com/feed/"
+    ],
+    "Finance": [
+        "https://www.bloomberg.com/feed/",
+        "https://www.cnbc.com/id/100003114/device/rss/rss.html",
+        "https://www.ft.com/business-education?format=rss"
+    ],
+    "Sports": [
+        "https://rss.app/rss-feed?keyword=ESPN&region=US&lang=en",
+        "https://rss.app/feeds/tWwnqzFBv5TWuhb2.xml",
+        "https://api.foxsports.com/v2/content/optimized-rss?partnerKey=MB0Wehpmuj2lUhuRhQaafhBjAJqaPU244mlTDK1i&size=30&tags=fs/mlb",
+        "https://api.foxsports.com/v2/content/optimized-rss?partnerKey=MB0Wehpmuj2lUhuRhQaafhBjAJqaPU244mlTDK1i&size=30&tags=fs/nba",
+        "https://api.foxsports.com/v2/content/optimized-rss?partnerKey=MB0Wehpmuj2lUhuRhQaafhBjAJqaPU244mlTDK1i&size=30&tags=fs/soccer,soccer/epl/league/1,soccer/mls/league/5,soccer/ucl/league/7,soccer/europa/league/8,soccer/wc/league/12,soccer/euro/league/13,soccer/wwc/league/14,soccer/nwsl/league/20,soccer/cwc/league/26,soccer/gold_cup/league/32,soccer/unl/league/67"
+    ],
+    "Entertainment": [
+        "https://variety.com/feed/",
+        "https://www.hollywoodreporter.com/t/hollywood/feed/",
+        "https://www.billboard.com/feed/"
+    ],
+    "Science": [
+        "https://www.nasa.gov/rss/dyn/breaking_news.rss",
+        "https://www.sciencedaily.com/rss/all.xml",
+        "http://feeds.arstechnica.com/arstechnica/science"
+    ]
 }
 
-# AI-generated categories
-DYNAMIC_CATEGORIES = ["Politics", "Technology", "Finance", "Sports", "Entertainment", "Science", "Health", "World News"]
-
-# Fetch RSS Articles (with caching)
-@st.cache_data()
+# Fetch RSS Articles
 def fetch_rss_articles(url):
     feed = feedparser.parse(url)
     return [{
@@ -63,17 +71,18 @@ def fetch_rss_articles(url):
     } for entry in feed.entries[:5]] if feed.entries else []
 
 # Classify Articles
-@st.cache_data()
-def classify_article(text):
-    text = text[:512]
+def classify_article(text, user_preferences, source):
+    text = text[:512]  # Limit text length for better classification
     try:
-        result = classifier(text, DYNAMIC_CATEGORIES, multi_label=False)
-        return result["labels"][0]
+        result = classifier(text, user_preferences, multi_label=True)
+        category = result["labels"][0]
+        if category not in user_preferences:
+            return None
     except Exception:
-        return "World News"
+        return None
+    return category
 
 # Summarize Text
-@st.cache_data()
 def summarize_text(text):
     if len(text.split()) > 50:
         try:
@@ -84,13 +93,11 @@ def summarize_text(text):
     return text
 
 # Generate Newsletter
-@st.cache_data()
 def generate_newsletter(articles_by_category):
     # Ensure all articles have summaries
     all_summaries = " ".join([summarize_text(article["summary"]) for articles in articles_by_category.values() for article in articles])
 
     # Generate an overall summary of all articles
-    general_summary = "No overall summary available."
     if len(all_summaries.split()) > 50:
         try:
             general_summary = summarizer(all_summaries, max_length=250, min_length=100, do_sample=False)[0]["summary_text"]
@@ -113,9 +120,9 @@ def generate_newsletter(articles_by_category):
     newsletter += f"{trending_highlights}\n\n"
     newsletter += "---\n\n"
     
-    # newsletter += "## 📌 General Summary\n"
-    # newsletter += f"{general_summary}\n\n"
-    # newsletter += "---\n\n"
+    newsletter += "## 📌 General Summary\n"
+    newsletter += f"{general_summary}\n\n"
+    newsletter += "---\n\n"
 
     newsletter += "## 🗂 Categorized News\n"
     for category, articles in articles_by_category.items():
@@ -131,7 +138,9 @@ def generate_newsletter(articles_by_category):
 # Streamlit UI
 st.title("📢 AI-Powered Dynamic News Categorization")
 st.sidebar.header("User Preferences")
-selected_categories = st.sidebar.multiselect("Choose categories", DYNAMIC_CATEGORIES)
+
+# User selects categories
+selected_categories = st.sidebar.multiselect("Select Categories", list(RSS_FEEDS.keys()), default=["General News", "Technology"])
 
 if st.sidebar.button("Fetch News"):
     if not selected_categories:
@@ -141,26 +150,32 @@ if st.sidebar.button("Fetch News"):
         articles_by_category = {category: [] for category in selected_categories}
         
         progress_bar = st.progress(0)
-        total_sources = len(RSS_FEEDS)
+        total_sources = sum(len(RSS_FEEDS[cat]) for cat in selected_categories)
+        processed_sources = 0
         
-        for i, (source, url) in enumerate(RSS_FEEDS.items()):
-            articles = fetch_rss_articles(url)
-            for article in articles:
-                text = f"{article['title']} {article['summary']}"
-                category = classify_article(text)
-                if category in selected_categories:
-                    article["summary"] = summarize_text(article["summary"])
-                    articles_by_category[category].append(article)
-                    st.markdown(f"## 📌 {category} News")
-                    st.markdown(f"### 🔍 {source}")
-                    st.markdown(f"**📰 {article['title']}**")
-                    st.write(f"📄 **Summary:** {article['summary']}")
-                    st.markdown(f"[Read more...]({article['link']})")
-                    st.write("---")
-            progress_bar.progress((i + 1) / total_sources)
+        for category in selected_categories:
+            for url in RSS_FEEDS[category]:
+                articles = fetch_rss_articles(url)
+                for article in articles:
+                    text = f"{article['title']} {article['summary']}"
+                    classified_category = classify_article(text, selected_categories, category)
+                    if classified_category:
+                        article["summary"] = summarize_text(article["summary"])
+                        articles_by_category.setdefault(classified_category, []).append(article)
+                processed_sources += 1
+                progress_bar.progress(processed_sources / total_sources)
         
         progress_bar.empty()
         
-        # Generate and download newsletter
+       
+        for category, articles in articles_by_category.items():
+            if articles:
+                st.markdown(f"## 📌 {category} News")
+                for article in articles:
+                    st.markdown(f"### 🔍 {article['title']}")
+                    st.write(f"📄 **Summary:** {article['summary']}")
+                    st.markdown(f"[Read more...]({article['link']})")
+                    st.write("---")
         newsletter_content = generate_newsletter(articles_by_category)
         st.download_button(label="📩 Download Newsletter", data=newsletter_content.encode("utf-8"), file_name=f"AI_Newsletter_{datetime.date.today()}.md", mime="text/markdown")
+        
