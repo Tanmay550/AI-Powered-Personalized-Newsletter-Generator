@@ -4,11 +4,11 @@
 This project is an NLP-based Newsletter Generator that creates custom newsletters based on user preferences. The system dynamically categorizes and summarizes articles fetched from RSS feeds.
 
 ## Features:
-📰 Personalized Content: Generates a custom newsletter based on user-selected categories.
-🔄 Real-time Updates: Uses RSS feeds to gather up-to-date articles from various domains (Technology, Science, Sports, etc.).
-🤖 AI-Powered Categorization: Implements the bart-large-mnli model to classify articles dynamically.
-✍️ Concise Summaries: Uses the bart-large-cnn model to generate summaries for each article.
-📌 Well-structured Newsletter:
+- 📰 Personalized Content: Generates a custom newsletter based on user-selected categories.
+- 🔄 Real-time Updates: Uses RSS feeds to gather up-to-date articles from various domains (Technology, Science, Sports, etc.).
+- 🤖 AI-Powered Categorization: Implements the bart-large-mnli model to classify articles dynamically.
+- ✍️ Concise Summaries: Uses the bart-large-cnn model to generate summaries for each article.
+- 📌 Well-structured Newsletter:
     1. A concise summary highlighting the most important/trending articles.
     2. A well-organized layout with sections based on topics.
     3. Summaries for selected articles with key points.
